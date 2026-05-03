@@ -20,11 +20,19 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Resolve install dir
+      id: dirs
+      shell: sh
+      run: |
+        INSTALL_DIR=$(echo "${{ inputs.install-dir }}" | sed "s|^~|$HOME|")
+        mkdir -p "$INSTALL_DIR"
+        echo "path=$INSTALL_DIR" >> "$GITHUB_OUTPUT"
+
     - name: Restore cached binary
       id: cache
       uses: actions/cache@v4
       with:
-        path: ${{ inputs.install-dir }}/orun
+        path: ${{ steps.dirs.outputs.path }}/orun
         key: orun-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
 
     - name: Install orun
@@ -32,12 +40,12 @@ runs:
       shell: sh
       env:
         ORUN_VERSION: ${{ inputs.version }}
-        ORUN_INSTALL_DIR: ${{ inputs.install-dir }}
+        ORUN_INSTALL_DIR: ${{ steps.dirs.outputs.path }}
       run: curl -fsSL "${{ inputs.install-url }}" | sh
 
     - name: Add to PATH
       shell: sh
-      run: echo "${{ inputs.install-dir }}" >> "$GITHUB_PATH"
+      run: echo "${{ steps.dirs.outputs.path }}" >> "$GITHUB_PATH"
 
     - name: Resolve installed version
       id: resolve
