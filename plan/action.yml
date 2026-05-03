@@ -1,0 +1,90 @@
+name: orun plan
+description: Compile an intent file into an execution plan
+
+inputs:
+  version:
+    description: orun version.
+    default: latest
+  intent:
+    description: Path to the intent YAML file.
+    required: true
+  output:
+    description: Path to write plan.json.
+    default: plan.json
+  changed-only:
+    description: Only include jobs for components that changed.
+    default: "false"
+  base-ref:
+    description: Base git ref for changed-only detection (PR base SHA).
+    default: ""
+  head-ref:
+    description: Head git ref for changed-only detection (PR head SHA).
+    default: ""
+  upload-artifact:
+    description: Upload plan.json as a workflow artifact.
+    default: "true"
+  artifact-name:
+    description: Artifact name when upload-artifact is true.
+    default: orun-plan
+
+outputs:
+  plan-file:
+    description: Absolute path to the generated plan.json.
+    value: ${{ steps.plan.outputs.plan-file }}
+  plan-checksum:
+    description: sha256 checksum from plan metadata.
+    value: ${{ steps.plan.outputs.plan-checksum }}
+  job-ids:
+    description: JSON array of all job IDs in the plan (e.g. ["api@production.deploy","db@production.deploy"]).
+    value: ${{ steps.plan.outputs.job-ids }}
+  job-count:
+    description: Total number of jobs in the plan.
+    value: ${{ steps.plan.outputs.job-count }}
+
+runs:
+  using: composite
+  steps:
+    - uses: sourceplane/orun-action@v1
+      with:
+        version: ${{ inputs.version }}
+
+    - name: Generate plan
+      id: plan
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        CHANGED_FLAGS=""
+        if [ "${{ inputs.changed-only }}" = "true" ]; then
+          CHANGED_FLAGS="--changed"
+          [ -n "${{ inputs.base-ref }}" ] && CHANGED_FLAGS="$CHANGED_FLAGS --base ${{ inputs.base-ref }}"
+          [ -n "${{ inputs.head-ref }}" ] && CHANGED_FLAGS="$CHANGED_FLAGS --head ${{ inputs.head-ref }}"
+        fi
+
+        orun plan \
+          --intent "${{ inputs.intent }}" \
+          --output "${{ inputs.output }}" \
+          $CHANGED_FLAGS
+
+        PLAN_FILE="$(realpath "${{ inputs.output }}")"
+        CHECKSUM="$(python3 -c "import json; d=json.load(open('${{ inputs.output }}')); print(d['metadata']['checksum'])")"
+        JOB_IDS="$(python3 -c "import json; d=json.load(open('${{ inputs.output }}')); print(json.dumps([j['id'] for j in d['jobs']]))")"
+        JOB_COUNT="$(python3 -c "import json; d=json.load(open('${{ inputs.output }}')); print(len(d['jobs']))")"
+
+        echo "plan-file=$PLAN_FILE" >> "$GITHUB_OUTPUT"
+        echo "plan-checksum=$CHECKSUM" >> "$GITHUB_OUTPUT"
+        echo "job-ids=$JOB_IDS" >> "$GITHUB_OUTPUT"
+        echo "job-count=$JOB_COUNT" >> "$GITHUB_OUTPUT"
+
+        echo "## Plan" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Checksum: \`$CHECKSUM\`" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Jobs: $JOB_COUNT" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload plan artifact
+      if: inputs.upload-artifact == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.output }}
+        retention-days: 7
+        if-no-files-found: error

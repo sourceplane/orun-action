@@ -1,0 +1,45 @@
+name: Setup orun
+description: Install orun and add it to PATH
+
+inputs:
+  version:
+    description: orun version to install. Accepts a full tag (v1.12.4) or "latest".
+    default: latest
+  install-dir:
+    description: Directory to install the binary into.
+    default: ~/.local/bin
+  install-url:
+    description: Override the install script URL (air-gapped environments).
+    default: https://raw.githubusercontent.com/sourceplane/orun/main/install.sh
+
+outputs:
+  version:
+    description: Resolved orun version string (e.g. v1.12.4).
+    value: ${{ steps.resolve.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Restore cached binary
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.install-dir }}/orun
+        key: orun-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
+
+    - name: Install orun
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: sh
+      env:
+        ORUN_VERSION: ${{ inputs.version }}
+        ORUN_INSTALL_DIR: ${{ inputs.install-dir }}
+      run: curl -fsSL "${{ inputs.install-url }}" | sh
+
+    - name: Add to PATH
+      shell: sh
+      run: echo "${{ inputs.install-dir }}" >> "$GITHUB_PATH"
+
+    - name: Resolve installed version
+      id: resolve
+      shell: sh
+      run: echo "version=$(orun version 2>/dev/null || echo unknown)" >> "$GITHUB_OUTPUT"

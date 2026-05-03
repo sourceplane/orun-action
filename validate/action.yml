@@ -1,0 +1,29 @@
+name: orun validate
+description: Validate an intent file
+
+inputs:
+  version:
+    description: orun version.
+    default: latest
+  intent:
+    description: Path to the intent YAML file.
+    required: true
+
+outputs:
+  valid:
+    description: '"true" if validation passed.'
+    value: ${{ steps.validate.outputs.valid }}
+
+runs:
+  using: composite
+  steps:
+    - uses: sourceplane/orun-action@v1
+      with:
+        version: ${{ inputs.version }}
+
+    - name: Validate
+      id: validate
+      shell: bash
+      run: |
+        orun validate --intent "${{ inputs.intent }}"
+        echo "valid=true" >> "$GITHUB_OUTPUT"

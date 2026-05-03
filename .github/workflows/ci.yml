@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint action YAML
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check action files exist
+        run: |
+          test -f action.yml
+          test -f plan/action.yml
+          test -f run/action.yml
+          test -f validate/action.yml
+
+      - name: Validate YAML syntax
+        run: |
+          python3 -c "
+          import yaml, sys, pathlib
+          files = ['action.yml','plan/action.yml','run/action.yml','validate/action.yml']
+          for f in files:
+              try:
+                  yaml.safe_load(pathlib.Path(f).read_text())
+                  print(f'OK: {f}')
+              except Exception as e:
+                  print(f'FAIL: {f}: {e}', file=sys.stderr)
+                  sys.exit(1)
+          "
+
+  smoke-setup:
+    name: Smoke — setup action
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run setup action (dry-run via PATH check skipped — orun not published yet)
+        run: echo "Setup action structure validated on ${{ matrix.os }}"

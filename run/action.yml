@@ -1,0 +1,81 @@
+name: orun run
+description: Execute a job from a compiled plan
+
+inputs:
+  version:
+    description: orun version.
+    default: latest
+  plan:
+    description: Path to plan.json or artifact name to download.
+    required: true
+  job:
+    description: Job ID to execute. Omit to run all jobs sequentially.
+    default: ""
+  runner:
+    description: Execution backend — local, github-actions, or docker.
+    default: github-actions
+  workdir:
+    description: Working directory for all job steps.
+    default: ${{ github.workspace }}
+  remote-state:
+    description: Enable remote state for distributed dependency coordination.
+    default: "false"
+  backend-url:
+    description: orun backend URL when remote-state is true.
+    default: ""
+  exec-id:
+    description: Execution ID. Set to a stable value (e.g. the run ID) for resume support.
+    default: ${{ github.run_id }}-${{ github.run_attempt }}
+  dry-run:
+    description: Print execution plan without running steps.
+    default: "false"
+  download-artifact:
+    description: Download plan from a workflow artifact instead of a local path.
+    default: "false"
+  artifact-name:
+    description: Artifact name to download when download-artifact is true.
+    default: orun-plan
+
+outputs:
+  exec-id:
+    description: Execution ID assigned to this run.
+    value: ${{ steps.run.outputs.exec-id }}
+  status:
+    description: Terminal status — success, failure, or partial.
+    value: ${{ steps.run.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    - uses: sourceplane/orun-action@v1
+      with:
+        version: ${{ inputs.version }}
+
+    - name: Download plan artifact
+      if: inputs.download-artifact == 'true'
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+
+    - name: Execute job
+      id: run
+      shell: bash
+      env:
+        ORUN_BACKEND_URL: ${{ inputs.backend-url }}
+      run: |
+        set -euo pipefail
+
+        FLAGS=""
+        [ -n "${{ inputs.job }}" ]                    && FLAGS="$FLAGS --job ${{ inputs.job }}"
+        [ "${{ inputs.remote-state }}" = "true" ]     && FLAGS="$FLAGS --remote-state"
+        [ "${{ inputs.dry-run }}" = "true" ]          && FLAGS="$FLAGS --dry-run"
+
+        orun run \
+          --plan "${{ inputs.plan }}" \
+          --runner "${{ inputs.runner }}" \
+          --workdir "${{ inputs.workdir }}" \
+          --exec-id "${{ inputs.exec-id }}" \
+          $FLAGS
+
+        echo "exec-id=${{ inputs.exec-id }}" >> "$GITHUB_OUTPUT"
+        echo "status=success" >> "$GITHUB_OUTPUT"
