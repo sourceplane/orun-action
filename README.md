@@ -54,7 +54,6 @@ jobs:
         id: plan
         with:
           intent: intent.yaml
-          version: v1.12.4
 
   execute:
     needs: plan
@@ -77,8 +76,6 @@ jobs:
           download-artifact: true
           remote-state: true
           backend-url: ${{ vars.ORUN_BACKEND_URL }}
-          exec-id: ${{ github.run_id }}-${{ github.run_attempt }}
-          version: v1.12.4
 ```
 
 ## Inputs
@@ -87,7 +84,7 @@ jobs:
 
 | Input | Default | Description |
 |---|---|---|
-| `version` | `latest` | orun version tag or `latest` |
+| `version` | `latest` | orun version tag or `latest` (auto-resolves to newest release) |
 | `install-dir` | `~/.local/bin` | Directory to install the binary |
 | `install-url` | upstream | Override install script URL (air-gapped) |
 
@@ -146,21 +143,23 @@ jobs:
 ## Version pinning
 
 ```yaml
-# Floating major (convenience)
+# Floating major (convenience — always gets latest orun)
 - uses: sourceplane/orun-action/plan@v1
 
 # Pinned semver (recommended)
-- uses: sourceplane/orun-action/plan@v1.0.0
+- uses: sourceplane/orun-action/plan@v1.1.0
 
 # Pinned SHA (high-assurance / supply-chain audited)
-- uses: sourceplane/orun-action/plan@<commit-sha>  # v1.0.0
+- uses: sourceplane/orun-action/plan@<commit-sha>  # v1.1.0
 ```
 
 The `v1` floating tag is force-pushed on every patch and minor release. Major version increments only on breaking input/output changes.
 
 ## Caching
 
-The orun binary is cached by `runner.os`, `runner.arch`, and `version`. A pinned version produces a stable cache hit for the lifetime of the runner image. Optionally cache composition archives:
+The orun binary is cached by `runner.os`, `runner.arch`, and the resolved version tag. When `version: latest` is used, the action resolves the actual release tag first so the cache key stays stable until a new orun release is published.
+
+Optionally cache composition archives:
 
 ```yaml
 - uses: actions/cache@v4
@@ -168,3 +167,9 @@ The orun binary is cached by `runner.os`, `runner.arch`, and `version`. A pinned
     path: .orun/cache
     key: orun-compositions-${{ hashFiles('.orun/compositions.lock.yaml') }}
 ```
+
+## Log output
+
+All actions use GitHub Actions [log grouping](https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#grouping-log-lines) for clean, collapsible output. Key events are surfaced as `::notice::` annotations and failures use `::error::` annotations with file-level targeting where applicable.
+
+Each action writes a structured [job summary](https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-job-summary) with execution results.

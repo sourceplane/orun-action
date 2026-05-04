@@ -21,9 +21,37 @@ runs:
       with:
         version: ${{ inputs.version }}
 
-    - name: Validate
+    - name: Validate intent
       id: validate
       shell: bash
       run: |
-        orun validate --intent "${{ inputs.intent }}"
-        echo "valid=true" >> "$GITHUB_OUTPUT"
+        set -euo pipefail
+        echo "::group::Validate ${{ inputs.intent }}"
+
+        if [ ! -f "${{ inputs.intent }}" ]; then
+          echo "::error file=${{ inputs.intent }}::Intent file not found: ${{ inputs.intent }}"
+          echo "valid=false" >> "$GITHUB_OUTPUT"
+          echo "::endgroup::"
+          exit 1
+        fi
+
+        if orun validate --intent "${{ inputs.intent }}"; then
+          echo "valid=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::Validation passed for ${{ inputs.intent }}"
+          {
+            echo "### Validation: :white_check_mark: passed"
+            echo ""
+            echo "Intent file \`${{ inputs.intent }}\` is valid."
+          } >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "valid=false" >> "$GITHUB_OUTPUT"
+          echo "::error file=${{ inputs.intent }}::Validation failed for ${{ inputs.intent }}"
+          {
+            echo "### Validation: :x: failed"
+            echo ""
+            echo "Intent file \`${{ inputs.intent }}\` has errors. Check the logs above for details."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+        fi
+
+        echo "::endgroup::"

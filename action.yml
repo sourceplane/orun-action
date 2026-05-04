@@ -20,9 +20,24 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Resolve version
+      id: version
+      shell: bash
+      run: |
+        echo "::group::Resolve orun version"
+        VERSION="${{ inputs.version }}"
+        if [ "$VERSION" = "latest" ] || [ -z "$VERSION" ]; then
+          VERSION=$(curl -fsSL -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/sourceplane/orun/releases/latest \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
+          echo "Resolved latest → $VERSION"
+        fi
+        echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "::endgroup::"
+
     - name: Resolve install dir
       id: dirs
-      shell: sh
+      shell: bash
       run: |
         INSTALL_DIR=$(echo "${{ inputs.install-dir }}" | sed "s|^~|$HOME|")
         mkdir -p "$INSTALL_DIR"
@@ -33,21 +48,33 @@ runs:
       uses: actions/cache@v4
       with:
         path: ${{ steps.dirs.outputs.path }}/orun
-        key: orun-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
+        key: orun-${{ runner.os }}-${{ runner.arch }}-${{ steps.version.outputs.tag }}
 
     - name: Install orun
       if: steps.cache.outputs.cache-hit != 'true'
-      shell: sh
+      shell: bash
       env:
-        ORUN_VERSION: ${{ inputs.version }}
+        ORUN_VERSION: ${{ steps.version.outputs.tag }}
         ORUN_INSTALL_DIR: ${{ steps.dirs.outputs.path }}
-      run: curl -fsSL "${{ inputs.install-url }}" | sh
+      run: |
+        echo "::group::Install orun ${{ steps.version.outputs.tag }}"
+        curl -fsSL "${{ inputs.install-url }}" | sh
+        echo "::endgroup::"
 
     - name: Add to PATH
-      shell: sh
+      shell: bash
       run: echo "${{ steps.dirs.outputs.path }}" >> "$GITHUB_PATH"
 
-    - name: Resolve installed version
+    - name: Verify installation
       id: resolve
-      shell: sh
-      run: echo "version=$(orun version 2>/dev/null || echo unknown)" >> "$GITHUB_OUTPUT"
+      shell: bash
+      run: |
+        echo "::group::Verify orun"
+        INSTALLED_VERSION=$(orun version 2>/dev/null || echo "")
+        if [ -z "$INSTALLED_VERSION" ]; then
+          echo "::error::orun installation failed — binary not found in PATH"
+          exit 1
+        fi
+        echo "version=$INSTALLED_VERSION" >> "$GITHUB_OUTPUT"
+        echo "::notice::orun $INSTALLED_VERSION ready"
+        echo "::endgroup::"

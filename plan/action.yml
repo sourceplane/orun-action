@@ -48,23 +48,33 @@ runs:
       with:
         version: ${{ inputs.version }}
 
-    - name: Generate plan
+    - name: Compile plan
       id: plan
       shell: bash
       run: |
         set -euo pipefail
+
+        echo "::group::Compile execution plan"
 
         CHANGED_FLAGS=""
         if [ "${{ inputs.changed-only }}" = "true" ]; then
           CHANGED_FLAGS="--changed"
           [ -n "${{ inputs.base-ref }}" ] && CHANGED_FLAGS="$CHANGED_FLAGS --base ${{ inputs.base-ref }}"
           [ -n "${{ inputs.head-ref }}" ] && CHANGED_FLAGS="$CHANGED_FLAGS --head ${{ inputs.head-ref }}"
+          echo "Scoping to changed components (base=${{ inputs.base-ref }}, head=${{ inputs.head-ref }})"
         fi
+
+        echo "Intent: ${{ inputs.intent }}"
+        echo "Output: ${{ inputs.output }}"
 
         orun plan \
           --intent "${{ inputs.intent }}" \
           --output "${{ inputs.output }}" \
           $CHANGED_FLAGS
+
+        echo "::endgroup::"
+
+        echo "::group::Extract plan metadata"
 
         PLAN_FILE="$(realpath "${{ inputs.output }}")"
         CHECKSUM="$(python3 -c "import json; d=json.load(open('${{ inputs.output }}')); print(d['metadata']['checksum'])")"
@@ -76,9 +86,29 @@ runs:
         echo "job-ids=$JOB_IDS" >> "$GITHUB_OUTPUT"
         echo "job-count=$JOB_COUNT" >> "$GITHUB_OUTPUT"
 
-        echo "## Plan" >> "$GITHUB_STEP_SUMMARY"
-        echo "- Checksum: \`$CHECKSUM\`" >> "$GITHUB_STEP_SUMMARY"
-        echo "- Jobs: $JOB_COUNT" >> "$GITHUB_STEP_SUMMARY"
+        echo "::endgroup::"
+
+        # Job summary
+        {
+          echo "### Plan compiled"
+          echo ""
+          echo "| Property | Value |"
+          echo "|----------|-------|"
+          echo "| Checksum | \`$CHECKSUM\` |"
+          echo "| Jobs | **$JOB_COUNT** |"
+          echo "| Changed-only | ${{ inputs.changed-only }} |"
+          echo ""
+          if [ "$JOB_COUNT" -gt 0 ]; then
+            echo "<details><summary>Job IDs</summary>"
+            echo ""
+            echo "\`\`\`json"
+            echo "$JOB_IDS" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
+            echo "\`\`\`"
+            echo "</details>"
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        echo "::notice::Plan compiled — $JOB_COUNT job(s), checksum $CHECKSUM"
 
     - name: Upload plan artifact
       if: inputs.upload-artifact == 'true'

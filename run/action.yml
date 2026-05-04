@@ -57,7 +57,7 @@ runs:
       with:
         name: ${{ inputs.artifact-name }}
 
-    - name: Execute job
+    - name: Execute
       id: run
       shell: bash
       env:
@@ -65,17 +65,57 @@ runs:
       run: |
         set -euo pipefail
 
+        JOB_LABEL="${{ inputs.job }}"
+        [ -z "$JOB_LABEL" ] && JOB_LABEL="all (sequential)"
+        echo "::group::Execute job: $JOB_LABEL"
+
         FLAGS=""
         [ -n "${{ inputs.job }}" ]                    && FLAGS="$FLAGS --job ${{ inputs.job }}"
         [ "${{ inputs.remote-state }}" = "true" ]     && FLAGS="$FLAGS --remote-state"
         [ "${{ inputs.dry-run }}" = "true" ]          && FLAGS="$FLAGS --dry-run"
 
+        echo "Plan:         ${{ inputs.plan }}"
+        echo "Runner:       ${{ inputs.runner }}"
+        echo "Exec ID:      ${{ inputs.exec-id }}"
+        echo "Remote state: ${{ inputs.remote-state }}"
+        echo "Dry run:      ${{ inputs.dry-run }}"
+        echo "---"
+
+        EXEC_STATUS=0
         orun run \
           --plan "${{ inputs.plan }}" \
           --runner "${{ inputs.runner }}" \
           --workdir "${{ inputs.workdir }}" \
           --exec-id "${{ inputs.exec-id }}" \
-          $FLAGS
+          $FLAGS || EXEC_STATUS=$?
+
+        echo "::endgroup::"
 
         echo "exec-id=${{ inputs.exec-id }}" >> "$GITHUB_OUTPUT"
-        echo "status=success" >> "$GITHUB_OUTPUT"
+
+        if [ $EXEC_STATUS -eq 0 ]; then
+          echo "status=success" >> "$GITHUB_OUTPUT"
+          echo "::notice::Job $JOB_LABEL completed successfully"
+          {
+            echo "### Job executed: \`$JOB_LABEL\`"
+            echo ""
+            echo "| Property | Value |"
+            echo "|----------|-------|"
+            echo "| Status | :white_check_mark: success |"
+            echo "| Exec ID | \`${{ inputs.exec-id }}\` |"
+            echo "| Runner | ${{ inputs.runner }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "status=failure" >> "$GITHUB_OUTPUT"
+          echo "::error::Job $JOB_LABEL failed with exit code $EXEC_STATUS"
+          {
+            echo "### Job executed: \`$JOB_LABEL\`"
+            echo ""
+            echo "| Property | Value |"
+            echo "|----------|-------|"
+            echo "| Status | :x: failure (exit $EXEC_STATUS) |"
+            echo "| Exec ID | \`${{ inputs.exec-id }}\` |"
+            echo "| Runner | ${{ inputs.runner }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $EXEC_STATUS
+        fi
