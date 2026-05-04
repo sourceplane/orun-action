@@ -70,9 +70,14 @@ runs:
       shell: bash
       run: |
         echo "::group::Verify orun"
-        INSTALLED_VERSION=$(orun version 2>/dev/null || echo "")
+        ORUN_BIN="${{ steps.dirs.outputs.path }}/orun"
+        if [ ! -x "$ORUN_BIN" ]; then
+          echo "::error::orun installation failed — binary not found at $ORUN_BIN"
+          exit 1
+        fi
+        INSTALLED_VERSION=$("$ORUN_BIN" version 2>/dev/null || echo "")
         if [ -z "$INSTALLED_VERSION" ]; then
-          echo "::error::orun installation failed — binary not found in PATH"
+          echo "::error::orun binary exists but failed to report version"
           exit 1
         fi
         echo "version=$INSTALLED_VERSION" >> "$GITHUB_OUTPUT"
