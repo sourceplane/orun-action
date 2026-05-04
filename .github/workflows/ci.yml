@@ -158,6 +158,7 @@ jobs:
           name: ci-test
           components:
             - name: hello
+              type: service
               path: .
               jobs:
                 - id: greet
