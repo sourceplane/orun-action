@@ -17,27 +17,82 @@ jobs:
 
       - name: Check action files exist
         run: |
-          test -f action.yml
-          test -f plan/action.yml
-          test -f run/action.yml
-          test -f validate/action.yml
+          echo "::group::Check required files"
+          for f in action.yml plan/action.yml run/action.yml validate/action.yml; do
+            if [ -f "$f" ]; then
+              echo "  ✓ $f"
+            else
+              echo "::error::Missing required file: $f"
+              exit 1
+            fi
+          done
+          echo "::endgroup::"
 
       - name: Validate YAML syntax
         run: |
+          echo "::group::Validate YAML"
           python3 -c "
           import yaml, sys, pathlib
           files = ['action.yml','plan/action.yml','run/action.yml','validate/action.yml']
+          ok = True
           for f in files:
               try:
-                  yaml.safe_load(pathlib.Path(f).read_text())
-                  print(f'OK: {f}')
+                  data = yaml.safe_load(pathlib.Path(f).read_text())
+                  assert 'name' in data, 'missing name field'
+                  assert 'runs' in data, 'missing runs field'
+                  print(f'  ✓ {f} ({data[\"name\"]})')
               except Exception as e:
-                  print(f'FAIL: {f}: {e}', file=sys.stderr)
-                  sys.exit(1)
+                  print(f'  ✗ {f}: {e}', file=sys.stderr)
+                  ok = False
+          if not ok:
+              sys.exit(1)
           "
+          echo "::endgroup::"
 
-  smoke-setup:
-    name: Smoke — setup action
+      - name: Validate action schema
+        run: |
+          echo "::group::Schema validation"
+          python3 -c "
+          import yaml, sys, pathlib
+
+          def validate_action(path):
+              data = yaml.safe_load(pathlib.Path(path).read_text())
+              errors = []
+              if 'description' not in data:
+                  errors.append('missing description')
+              if 'runs' not in data:
+                  errors.append('missing runs')
+              elif data['runs'].get('using') != 'composite':
+                  errors.append('not a composite action')
+              elif 'steps' not in data['runs']:
+                  errors.append('missing steps in runs')
+              if data.get('inputs'):
+                  for name, spec in data['inputs'].items():
+                      if 'description' not in spec:
+                          errors.append(f'input \"{name}\" missing description')
+              if data.get('outputs'):
+                  for name, spec in data['outputs'].items():
+                      if 'description' not in spec:
+                          errors.append(f'output \"{name}\" missing description')
+              return errors
+
+          files = ['action.yml','plan/action.yml','run/action.yml','validate/action.yml']
+          ok = True
+          for f in files:
+              errs = validate_action(f)
+              if errs:
+                  for e in errs:
+                      print(f'  ✗ {f}: {e}', file=sys.stderr)
+                  ok = False
+              else:
+                  print(f'  ✓ {f}')
+          if not ok:
+              sys.exit(1)
+          "
+          echo "::endgroup::"
+
+  test-setup:
+    name: Test setup — ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -46,5 +101,102 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run setup action (dry-run via PATH check skipped — orun not published yet)
-        run: echo "Setup action structure validated on ${{ matrix.os }}"
+      - name: Install orun (latest)
+        uses: ./
+        id: setup
+
+      - name: Verify orun is in PATH
+        run: |
+          echo "::group::Verify installation"
+          which orun
+          orun --help || true
+          echo "::endgroup::"
+
+      - name: Verify version output
+        run: |
+          VERSION="${{ steps.setup.outputs.version }}"
+          echo "Reported version: $VERSION"
+          if [ -z "$VERSION" ]; then
+            echo "::error::Setup action returned empty version"
+            exit 1
+          fi
+          echo "::notice::Setup verified — orun $VERSION on ${{ matrix.os }}"
+
+  test-setup-pinned:
+    name: Test setup — pinned version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install orun (pinned)
+        uses: ./
+        id: setup
+        with:
+          version: v1.12.6
+
+      - name: Verify pinned version
+        run: |
+          VERSION="${{ steps.setup.outputs.version }}"
+          echo "Reported version: $VERSION"
+          if [ -z "$VERSION" ]; then
+            echo "::error::Expected a version string, got empty"
+            exit 1
+          fi
+          echo "::notice::Pinned install verified — $VERSION"
+
+  test-validate:
+    name: Test validate
+    runs-on: ubuntu-latest
+    needs: [test-setup]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test intent
+        run: |
+          cat > test-intent.yaml << 'EOF'
+          version: "1"
+          name: ci-test
+          components:
+            - name: hello
+              type: service
+              path: .
+              jobs:
+                - id: greet
+                  steps:
+                    - run: echo "hello world"
+          EOF
+
+      - name: Validate intent
+        uses: ./validate
+        id: validate
+        with:
+          intent: test-intent.yaml
+
+      - name: Check output
+        run: |
+          if [ "${{ steps.validate.outputs.valid }}" != "true" ]; then
+            echo "::error::Expected valid=true"
+            exit 1
+          fi
+
+  test-validate-missing-file:
+    name: Test validate — missing file
+    runs-on: ubuntu-latest
+    needs: [test-setup]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate non-existent file (expect failure)
+        uses: ./validate
+        id: validate
+        continue-on-error: true
+        with:
+          intent: does-not-exist.yaml
+
+      - name: Verify failure
+        run: |
+          if [ "${{ steps.validate.outputs.valid }}" = "true" ]; then
+            echo "::error::Expected validation to fail for missing file"
+            exit 1
+          fi
+          echo "::notice::Correctly rejected missing file"
