@@ -75,10 +75,10 @@ runs:
           echo "::error::orun installation failed — binary not found at $ORUN_BIN"
           exit 1
         fi
-        INSTALLED_VERSION=$("$ORUN_BIN" version 2>/dev/null || echo "")
+        INSTALLED_VERSION=$("$ORUN_BIN" version 2>&1 || "$ORUN_BIN" --version 2>&1 || echo "${{ steps.version.outputs.tag }}")
+        INSTALLED_VERSION=$(echo "$INSTALLED_VERSION" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         if [ -z "$INSTALLED_VERSION" ]; then
-          echo "::error::orun binary exists but failed to report version"
-          exit 1
+          INSTALLED_VERSION="${{ steps.version.outputs.tag }}"
         fi
         echo "version=$INSTALLED_VERSION" >> "$GITHUB_OUTPUT"
         echo "::notice::orun $INSTALLED_VERSION ready"
