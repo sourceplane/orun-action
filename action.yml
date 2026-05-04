@@ -23,11 +23,19 @@ runs:
     - name: Resolve version
       id: version
       shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
         echo "::group::Resolve orun version"
         VERSION="${{ inputs.version }}"
         if [ "$VERSION" = "latest" ] || [ -z "$VERSION" ]; then
-          VERSION=$(curl -fsSL -H "Accept: application/vnd.github+json" \
+          AUTH_HEADER=""
+          if [ -n "$GH_TOKEN" ]; then
+            AUTH_HEADER="Authorization: Bearer $GH_TOKEN"
+          fi
+          VERSION=$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
             https://api.github.com/repos/sourceplane/orun/releases/latest \
             | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
           echo "Resolved latest → $VERSION"
